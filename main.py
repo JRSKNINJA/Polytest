@@ -3,7 +3,8 @@ import json
 import logging
 import signal
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
+from data.trade_log import get_alltime_stats, get_today, init as init_trade_log, record as record_trade
 
 from config import CYCLE_INTERVAL_SECONDS, LOG_LEVEL, PAPER_TRADING
 from orchestrator import TradingOrchestrator
@@ -26,6 +27,24 @@ signal.signal(signal.SIGINT, _handle_signal)
 signal.signal(signal.SIGTERM, _handle_signal)
 
 
+async def daily_summary_loop(get_results_fn):
+    """Fires once per day at midnight UTC."""
+    from agents.notifier import Notifier
+    while True:
+        now = datetime.utcnow()
+        tomorrow_midnight = (now + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        wait_seconds = (tomorrow_midnight - now).total_seconds()
+        await asyncio.sleep(wait_seconds)
+
+        trades = get_today()
+        stats  = get_alltime_stats()
+        results = get_results_fn()
+        current_price = results.get("data", {}).get("current_price", 0) if results else 0
+        await Notifier().send_daily_summary(trades, stats, current_price)
+
+
 async def main():
     mode = "PAPER" if PAPER_TRADING else "LIVE"
     print(f"""
@@ -36,7 +55,10 @@ async def main():
 ╚══════════════════════════════════════════════════════╝
 """)
 
+    init_trade_log()
+
     orchestrator = TradingOrchestrator()
+    asyncio.create_task(daily_summary_loop(lambda: orchestrator.results))
     cycle = 0
 
     while _running:
@@ -58,6 +80,8 @@ async def main():
 
             with open("state.json", "w") as f:
                 json.dump(state, f, indent=2, default=str)
+
+            record_trade(state)
 
             print(f"[MAIN] Cycle #{cycle} done. Next in {CYCLE_INTERVAL_SECONDS}s.")
         except KeyboardInterrupt:

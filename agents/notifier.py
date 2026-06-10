@@ -74,5 +74,40 @@ class Notifier(BaseAgent):
         )
         await self._send(msg)
 
+    async def send_daily_summary(self, trades: list, stats: dict, current_price: float) -> None:
+        from datetime import datetime as _dt
+        executed = [t for t in trades if t["status"] in ("paper_trade", "executed")]
+        blocked  = [t for t in trades if t["status"] == "blocked"]
+        flat     = [t for t in trades if t["status"] == "no_trade"]
+        deployed = sum(t["amount_usdc"] for t in executed)
+
+        btc_open   = trades[0]["btc_price"] if trades else current_price
+        btc_change = ((current_price - btc_open) / btc_open * 100) if btc_open else 0.0
+        arrow      = "📈" if btc_change >= 0 else "📉"
+
+        avg_fg    = sum(t["fear_greed"] for t in trades) / len(trades) if trades else 50
+        buy_count  = sum(1 for t in executed if t["signal"] == 1)
+        sell_count = sum(1 for t in executed if t["signal"] == -1)
+
+        msg = (
+            f"📊 *GCM Bot — Daily Summary*\n"
+            f"_{_dt.utcnow().strftime('%Y-%m-%d')} UTC_\n\n"
+            f"₿ BTC: `${current_price:,.0f}` {arrow} `{btc_change:+.1f}%`\n\n"
+            f"*Today*\n"
+            f"• Cycles run: `{len(trades)}`\n"
+            f"• Trades taken: `{len(executed)}` (↑{buy_count} ↓{sell_count})\n"
+            f"• Risk-blocked: `{len(blocked)}`\n"
+            f"• No signal: `{len(flat)}`\n"
+            f"• USDC deployed: `${deployed:,.2f}`\n\n"
+            f"*All-time*\n"
+            f"• Total cycles: `{int(stats.get('total_cycles') or 0)}`\n"
+            f"• Total trades: `{int(stats.get('total_trades') or 0)}`\n"
+            f"• Total deployed: `${float(stats.get('total_deployed') or 0):,.2f}`\n"
+            f"• BTC range seen: `${float(stats.get('btc_low') or 0):,.0f}` – `${float(stats.get('btc_high') or 0):,.0f}`\n"
+            f"• Avg risk score: `{float(stats.get('avg_risk') or 0):.0f}/100`\n\n"
+            f"*Avg Fear & Greed today:* `{avg_fg:.0f}`\n"
+        )
+        await self._send(msg)
+
     async def run(self) -> dict:
         return {}
