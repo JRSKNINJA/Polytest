@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 
@@ -73,43 +74,59 @@ class TradingOrchestrator:
     async def run_cycle(self) -> dict:
         print("\n[ORCHESTRATOR] ═══ TRADING CYCLE START ═══")
 
-        print("[ORCHESTRATOR] 1/6 Decomposing goal...")
+        print("[ORCHESTRATOR] 1/5 Decomposing goal...")
         task_tree = self.decompose_goal(
             "Trade BTC prediction markets on Polymarket with strict risk management and 5-year backtest validation"
         )
-        print(f"[ORCHESTRATOR] Task tree: {len(task_tree)} tasks identified")
+        print(f"[ORCHESTRATOR] {len(task_tree)} tasks in tree")
 
-        print("[ORCHESTRATOR] 2/6 Fetching market data (Binance)...")
-        data_agent = DataAgent()
-        self.results["data"] = await data_agent.run()
+        # Step 2: Data (must come first — everything depends on it)
+        print("[ORCHESTRATOR] 2/5 Fetching market data + macro in parallel...")
+        from agents.data_agent import DataAgent
+        from agents.macro_agent import MacroAgent
+        data_result, macro_result = await asyncio.gather(
+            DataAgent().run(),
+            MacroAgent().run(),
+        )
+        self.results["data"] = data_result
+        self.results["macro"] = macro_result
 
-        print("[ORCHESTRATOR] 3/6 Generating signals...")
-        signal_agent = SignalAgent(self.results["data"])
-        self.results["signals"] = await signal_agent.run()
+        # Step 3: Signals (depends on data + macro; backtest depends on signals — must be sequential here)
+        print("[ORCHESTRATOR] 3/5 Generating signals...")
+        from agents.signal_agent import SignalAgent
+        self.results["signals"] = await SignalAgent(self.results["data"], self.results["macro"]).run()
 
-        print("[ORCHESTRATOR] 4/6 Running 5-year backtest...")
-        backtest_agent = BacktestAgent(self.results["data"], self.results["signals"])
-        self.results["backtest"] = await backtest_agent.run()
+        # Step 4: Backtest + Risk in parallel (backtest uses data+signals; risk uses backtest — chain but backtest is the slow part)
+        print("[ORCHESTRATOR] 4/5 Backtesting...")
+        from agents.backtest_agent import BacktestAgent
+        self.results["backtest"] = await BacktestAgent(self.results["data"], self.results["signals"]).run()
 
-        print("[ORCHESTRATOR] 5/6 Risk assessment...")
-        risk_agent = RiskAgent(self.results["backtest"])
-        self.results["risk"] = await risk_agent.run()
+        print("[ORCHESTRATOR] 4b/5 Risk + Review in parallel...")
+        from agents.risk_agent import RiskAgent
+        from agents.review_agent import ReviewAgent
+        risk_result, review_result = await asyncio.gather(
+            RiskAgent(self.results["backtest"]).run(),
+            ReviewAgent(self.results).run(),
+        )
+        self.results["risk"] = risk_result
+        self.results["review"] = review_result
 
-        print("[ORCHESTRATOR] 6/6 Claude review of all outputs...")
-        review_agent = ReviewAgent(self.results)
-        self.results["review"] = await review_agent.run()
-
+        # Step 5: Orchestrator review + execution
+        print("[ORCHESTRATOR] 5/5 Final review and execution...")
         orchestrator_review = self.review_all(self.results)
         self.results["orchestrator_review"] = orchestrator_review
 
         risk_score = orchestrator_review.get("risk_score", 100)
         if risk_score > 70:
-            print(f"[ORCHESTRATOR] HIGH RISK ({risk_score}/100) — execution blocked")
+            print(f"[ORCHESTRATOR] HIGH RISK ({risk_score}/100) — blocked")
             self.results["execution"] = {"status": "blocked", "reason": f"risk score {risk_score}"}
         elif self.results["review"].get("approved") and self.results["risk"].get("approved"):
-            print("[ORCHESTRATOR] Approved — executing on Polymarket...")
-            exec_agent = ExecutionAgent(self.results)
-            self.results["execution"] = await exec_agent.run()
+            print("[ORCHESTRATOR] Approved — executing...")
+            from agents.execution_agent import ExecutionAgent
+            from agents.notifier import Notifier
+            exec_result = await ExecutionAgent(self.results).run()
+            self.results["execution"] = exec_result
+            await Notifier().send_trade_alert(exec_result, self.results)
         else:
             print("[ORCHESTRATOR] Not approved — no trade")
             self.results["execution"] = {"status": "no_trade", "reason": "not approved"}

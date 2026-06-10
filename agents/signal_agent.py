@@ -5,9 +5,10 @@ from .base_agent import BaseAgent
 
 
 class SignalAgent(BaseAgent):
-    def __init__(self, market_data: dict):
+    def __init__(self, market_data: dict, macro_data: dict | None = None):
         super().__init__("SignalAgent")
         self.data = market_data
+        self.macro = macro_data or {}
 
     @staticmethod
     def _rsi(prices: pd.Series, period: int = 14) -> pd.Series:
@@ -73,12 +74,24 @@ class SignalAgent(BaseAgent):
             return {"error": "No market data"}
 
         signals = self._generate(df)
+
+        macro_boost = (
+            self.macro.get("fear_greed_signal", 0) * 0.15
+            + self.macro.get("funding_signal", 0) * 0.10
+        )
+        # Adjust composite with macro signals
+        signals["composite"] = signals["composite"] + macro_boost
+        signals["final_signal"] = np.where(
+            signals["composite"] > 0.3, 1, np.where(signals["composite"] < -0.3, -1, 0)
+        )
+
         latest = signals.iloc[-1]
         recent = signals.tail(30)
 
         self.log(
             f"Signal={int(latest['final_signal'])}, RSI={latest['rsi']:.1f}, "
-            f"Trend={'bullish' if latest['trend'] > 0 else 'bearish'}"
+            f"Trend={'bullish' if latest['trend'] > 0 else 'bearish'}, "
+            f"MacroBoost={macro_boost:+.2f}"
         )
         return {
             "signals": signals.tail(100).to_dict(),
@@ -91,5 +104,11 @@ class SignalAgent(BaseAgent):
                 "bearish_days": int((recent["final_signal"] == -1).sum()),
                 "neutral_days": int((recent["final_signal"] == 0).sum()),
                 "avg_composite": float(recent["composite"].mean()),
+            },
+            "macro": {
+                "fear_greed": self.macro.get("fear_greed", {}),
+                "funding_rate": self.macro.get("funding_rate", 0),
+                "fear_greed_signal": self.macro.get("fear_greed_signal", 0),
+                "funding_signal": self.macro.get("funding_signal", 0),
             },
         }

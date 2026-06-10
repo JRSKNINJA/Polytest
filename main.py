@@ -53,6 +53,7 @@ async def main():
                 "risk_score": results.get("orchestrator_review", {}).get("risk_score", 0),
                 "signal": results.get("signals", {}).get("current_position", 0),
                 "btc_price": results.get("data", {}).get("current_price", 0),
+                "fear_greed_value": results.get("macro", {}).get("fear_greed", {}).get("value", 50),
             }
 
             with open("state.json", "w") as f:
