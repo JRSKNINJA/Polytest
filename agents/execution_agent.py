@@ -1,8 +1,9 @@
+import asyncio
 from datetime import datetime
 
 from config import PAPER_TRADING
 from polymarket.client import PolymarketClient
-from polymarket.market_finder import MarketFinder
+from polymarket.executor import Executor
 from .base_agent import BaseAgent
 
 
@@ -11,7 +12,7 @@ class ExecutionAgent(BaseAgent):
         super().__init__("ExecutionAgent")
         self.results = analysis_results
         self.client = PolymarketClient()
-        self.finder = MarketFinder()
+        self.executor = Executor(self.client)
 
     async def run(self) -> dict:
         self.log(f"Starting execution (paper_trading={PAPER_TRADING})...")
@@ -33,23 +34,28 @@ class ExecutionAgent(BaseAgent):
             self.log("No signal — staying flat")
             return {"status": "no_trade", "reason": "neutral signal"}
 
-        market = self.finder.select_best_market(signal, current_price)
+        # The Polymarket client is synchronous — keep its network calls off
+        # the event loop so the rest of the bot stays responsive.
+        market = await asyncio.to_thread(
+            self.executor.finder.select_best_market, signal, current_price
+        )
         if not market:
             self.log("No suitable Polymarket found")
             return {"status": "no_market", "reason": "no suitable BTC market"}
 
-        balance = self._get_balance()
+        balance = await asyncio.to_thread(self._get_balance)
         if balance < 10:
             self.log(f"Insufficient balance: ${balance:.2f}")
             return {"status": "insufficient_funds", "balance": balance}
 
         position_size = risk.get("position_size", 0.05)
         amount = min(balance * position_size, balance * 0.10)
+        direction = "YES" if signal > 0 else "NO"
 
         trade = {
-            "status": "paper_trade" if PAPER_TRADING else "live_trade",
+            "status": "paper_trade",
             "signal": signal,
-            "direction": "YES" if signal > 0 else "NO",
+            "direction": direction,
             "market": market.get("question", "Unknown"),
             "condition_id": market.get("condition_id", ""),
             "amount_usdc": round(amount, 2),
@@ -58,7 +64,8 @@ class ExecutionAgent(BaseAgent):
         }
 
         if not PAPER_TRADING:
-            trade = self._execute_live(trade, market, amount)
+            result = await asyncio.to_thread(self.executor.execute, market, direction, amount)
+            trade.update(result)
 
         self.log(
             f"Trade: {trade['direction']} ${trade['amount_usdc']} on '{trade['market'][:60]}'"
@@ -72,25 +79,3 @@ class ExecutionAgent(BaseAgent):
         except Exception as e:
             self.log(f"Balance fetch failed: {e}. Using 0.")
             return 0.0
-
-    def _execute_live(self, trade: dict, market: dict, amount: float) -> dict:
-        try:
-            tokens = market.get("tokens", [])
-            token_id = tokens[0].get("token_id", "") if tokens else ""
-            side = "BUY" if trade["direction"] == "YES" else "BUY"  # buy NO token
-            if not token_id:
-                trade["status"] = "error"
-                trade["error"] = "No token_id found"
-                return trade
-
-            orderbook = self.client.get_orderbook(token_id)
-            best_ask = float(orderbook.get("asks", [{"price": 0.5}])[0].get("price", 0.5))
-            size = round(amount / best_ask, 2)
-
-            result = self.client.place_order(token_id, best_ask, size, side)
-            trade["order_id"] = result.get("orderID", "")
-            trade["status"] = "executed"
-        except Exception as e:
-            trade["status"] = "error"
-            trade["error"] = str(e)
-        return trade

@@ -1,9 +1,9 @@
 import json
-import re
 
 import anthropic
 
 from config import CLAUDE_MODEL
+from llm_utils import extract_json
 from .base_agent import BaseAgent
 
 
@@ -11,7 +11,7 @@ class ReviewAgent(BaseAgent):
     def __init__(self, all_results: dict):
         super().__init__("ReviewAgent")
         self.results = all_results
-        self.client = anthropic.Anthropic()
+        self.client = anthropic.AsyncAnthropic()
 
     async def run(self) -> dict:
         self.log("Claude is reviewing all agent outputs...")
@@ -38,7 +38,7 @@ class ReviewAgent(BaseAgent):
         }
 
         try:
-            response = self.client.messages.create(
+            response = await self.client.messages.create(
                 model=CLAUDE_MODEL,
                 max_tokens=1024,
                 messages=[
@@ -63,10 +63,8 @@ Return ONLY valid JSON:
                     }
                 ],
             )
-            content = response.content[0].text
-            match = re.search(r"\{.*\}", content, re.DOTALL)
-            if match:
-                result = json.loads(match.group())
+            result = extract_json(response.content[0].text)
+            if isinstance(result, dict):
                 self.log(f"Review: approved={result.get('approved')}, confidence={result.get('confidence')}")
                 return result
         except Exception as e:

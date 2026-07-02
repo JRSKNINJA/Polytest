@@ -94,7 +94,7 @@ class SignalAgent(BaseAgent):
             f"MacroBoost={macro_boost:+.2f}"
         )
         return {
-            "signals": signals.tail(100).to_dict(),
+            "signals": signals.to_dict(),
             "latest_signal": {k: float(v) for k, v in latest.items()},
             "current_position": int(latest["final_signal"]),
             "rsi": float(latest["rsi"]),

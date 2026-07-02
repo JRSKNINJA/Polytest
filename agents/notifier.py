@@ -1,5 +1,4 @@
-import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 import aiohttp
 
@@ -61,7 +60,7 @@ class Notifier(BaseAgent):
         elif status == "blocked":
             msg += f"🔒 Reason: `{execution.get('reason', 'N/A')}`\n"
 
-        msg += f"\n_⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}_"
+        msg += f"\n_⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}_"
         await self._send(msg)
 
     async def send_risk_alert(self, risk_score: int, issues: list) -> None:
@@ -75,7 +74,6 @@ class Notifier(BaseAgent):
         await self._send(msg)
 
     async def send_daily_summary(self, trades: list, stats: dict, current_price: float) -> None:
-        from datetime import datetime as _dt
         executed = [t for t in trades if t["status"] in ("paper_trade", "executed")]
         blocked  = [t for t in trades if t["status"] == "blocked"]
         flat     = [t for t in trades if t["status"] == "no_trade"]
@@ -91,7 +89,7 @@ class Notifier(BaseAgent):
 
         msg = (
             f"📊 *GCM Bot — Daily Summary*\n"
-            f"_{_dt.utcnow().strftime('%Y-%m-%d')} UTC_\n\n"
+            f"_{datetime.now(timezone.utc).strftime('%Y-%m-%d')} UTC_\n\n"
             f"₿ BTC: `${current_price:,.0f}` {arrow} `{btc_change:+.1f}%`\n\n"
             f"*Today*\n"
             f"• Cycles run: `{len(trades)}`\n"

@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import date, datetime
+from datetime import datetime, timezone
 
 DB = "trades.db"
 
@@ -25,6 +25,15 @@ def init():
     con.close()
 
 
+def get_last_cycle() -> int:
+    """Highest cycle number ever recorded — lets the bot resume its counter
+    across restarts instead of colliding with the UNIQUE(cycle) constraint."""
+    con = sqlite3.connect(DB)
+    row = con.execute("SELECT COALESCE(MAX(cycle), 0) FROM trades").fetchone()
+    con.close()
+    return int(row[0] or 0)
+
+
 def record(state: dict):
     execution = state.get("execution", {})
     con = sqlite3.connect(DB)
@@ -34,7 +43,7 @@ def record(state: dict):
            VALUES (?,?,?,?,?,?,?,?,?,?)""",
         (
             state.get("cycle", 0),
-            state.get("timestamp", datetime.now().isoformat()),
+            state.get("timestamp", datetime.now(timezone.utc).isoformat()),
             execution.get("status", ""),
             state.get("signal", 0),
             state.get("btc_price", 0),
@@ -50,7 +59,8 @@ def record(state: dict):
 
 
 def get_today() -> list[dict]:
-    today = date.today().isoformat()
+    # UTC to match the daily-summary schedule and the timestamps we record
+    today = datetime.now(timezone.utc).date().isoformat()
     con = sqlite3.connect(DB)
     con.row_factory = sqlite3.Row
     rows = con.execute(

@@ -4,17 +4,18 @@ from .client import PolymarketClient
 
 BTC_KEYWORDS = ["bitcoin", "btc"]
 PRICE_KEYWORDS = ["price", "above", "below", "reach", "hit", "exceed", "cross", "$"]
+MAX_PAGES = 50  # bound the catalog crawl — one runaway pagination loop can take minutes
 
 
 class MarketFinder:
-    def __init__(self):
-        self.client = PolymarketClient()
+    def __init__(self, client: PolymarketClient | None = None):
+        self.client = client or PolymarketClient()
 
     def find_btc_markets(self) -> list[dict]:
         btc_markets = []
         next_cursor = "MA=="
 
-        while True:
+        for _ in range(MAX_PAGES):
             try:
                 response = self.client.get_markets(next_cursor=next_cursor)
                 markets = response.get("data", [])
