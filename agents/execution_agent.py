@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 
-from config import PAPER_TRADING
+import config
 from polymarket.client import PolymarketClient
 from polymarket.executor import Executor
 from .base_agent import BaseAgent
@@ -15,7 +15,7 @@ class ExecutionAgent(BaseAgent):
         self.executor = Executor(self.client)
 
     async def run(self) -> dict:
-        self.log(f"Starting execution (paper_trading={PAPER_TRADING})...")
+        self.log(f"Starting execution (paper_trading={config.PAPER_TRADING})...")
 
         signal = self.results.get("signals", {}).get("current_position", 0)
         current_price = self.results.get("data", {}).get("current_price", 0)
@@ -40,10 +40,22 @@ class ExecutionAgent(BaseAgent):
             self.executor.finder.select_best_market, signal, current_price
         )
         if not market:
-            self.log("No suitable Polymarket found")
-            return {"status": "no_market", "reason": "no suitable BTC market"}
+            if not config.PAPER_TRADING:
+                self.log("No suitable Polymarket found")
+                return {"status": "no_market", "reason": "no suitable BTC market"}
+            # Paper mode works without Polymarket credentials/reachability —
+            # simulate a market so the strategy still gets exercised and logged.
+            direction_word = "above" if signal > 0 else "below"
+            market = {
+                "question": f"[SIM] Will BTC be {direction_word} ${current_price:,.0f}?",
+                "condition_id": "paper-sim",
+            }
+            self.log("No live market data — using simulated paper market")
 
-        balance = await asyncio.to_thread(self._get_balance)
+        if config.PAPER_TRADING:
+            balance = config.PAPER_BALANCE
+        else:
+            balance = await asyncio.to_thread(self._get_balance)
         if balance < 10:
             self.log(f"Insufficient balance: ${balance:.2f}")
             return {"status": "insufficient_funds", "balance": balance}
@@ -63,7 +75,7 @@ class ExecutionAgent(BaseAgent):
             "timestamp": datetime.now().isoformat(),
         }
 
-        if not PAPER_TRADING:
+        if not config.PAPER_TRADING:
             result = await asyncio.to_thread(self.executor.execute, market, direction, amount)
             trade.update(result)
 

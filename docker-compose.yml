@@ -1,0 +1,35 @@
+# Runs the trading bot + dashboard 24/7.
+# Expects GCM-AMP cloned as a sibling directory:
+#   parent/
+#     Polytest/   (this repo)
+#     GCM-AMP/    (dashboard)
+#
+#   cp .env.example .env   # fill in your keys (paper mode needs none)
+#   docker compose up -d --build
+#   open http://localhost:8000
+
+services:
+  bot:
+    build: .
+    env_file: .env
+    environment:
+      STATE_FILE: /shared/state.json
+      TRADES_DB: /shared/trades.db
+    volumes:
+      - shared:/shared
+    restart: unless-stopped
+
+  dashboard:
+    build: ../GCM-AMP
+    environment:
+      STATE_FILE: /shared/state.json
+      DB_FILE: /shared/dashboard.db
+      PORT: "8000"
+    volumes:
+      - shared:/shared
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+volumes:
+  shared:

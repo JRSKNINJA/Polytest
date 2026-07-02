@@ -3,6 +3,7 @@ import json
 
 import anthropic
 
+import config
 from config import CLAUDE_MODEL
 from llm_utils import extract_json
 from agents.data_agent import DataAgent
@@ -25,7 +26,8 @@ class TradingOrchestrator:
     """
 
     def __init__(self):
-        self.client = anthropic.AsyncAnthropic()
+        # AsyncAnthropic raises at construction without an API key
+        self.client = anthropic.AsyncAnthropic() if config.LLM_REVIEW_ENABLED else None
         self.results: dict = {}
 
     async def review_all(self, results: dict) -> dict:
@@ -83,10 +85,21 @@ class TradingOrchestrator:
         # execution and has to be based on the current cycle's risk assessment.
         print("[ORCHESTRATOR] 4/5 Risk assessment, then Claude review...")
         results["risk"] = await RiskAgent(results["backtest"]).run()
-        results["review"] = await ReviewAgent(results).run()
 
-        print("[ORCHESTRATOR] 5/5 Final review and execution...")
-        orchestrator_review = await self.review_all(results)
+        if config.LLM_REVIEW_ENABLED:
+            results["review"] = await ReviewAgent(results).run()
+            print("[ORCHESTRATOR] 5/5 Final review and execution...")
+            orchestrator_review = await self.review_all(results)
+        else:
+            print("[ORCHESTRATOR] 5/5 No ANTHROPIC_API_KEY — gating on quantitative risk only")
+            risk_approved = results["risk"].get("approved", False)
+            results["review"] = {"approved": risk_approved, "skipped": True}
+            orchestrator_review = {
+                "approved": risk_approved,
+                "issues": results["risk"].get("issues", []),
+                "risk_score": results["risk"].get("risk_score", 100),
+                "skipped": True,
+            }
         results["orchestrator_review"] = orchestrator_review
 
         notifier = Notifier()

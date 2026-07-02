@@ -4,7 +4,7 @@ import logging
 import signal
 from datetime import datetime, timedelta, timezone
 
-from config import CYCLE_INTERVAL_SECONDS, LOG_LEVEL, PAPER_TRADING
+from config import CYCLE_INTERVAL_SECONDS, LOG_LEVEL, PAPER_TRADING, STATE_FILE
 from data.trade_log import (
     get_alltime_stats,
     get_last_cycle,
@@ -86,7 +86,7 @@ async def main():
                 "fear_greed_value": results.get("macro", {}).get("fear_greed", {}).get("value", 50),
             }
 
-            with open("state.json", "w") as f:
+            with open(STATE_FILE, "w") as f:
                 json.dump(state, f, indent=2, default=str)
 
             record_trade(state)

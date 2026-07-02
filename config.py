@@ -15,7 +15,15 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
+PAPER_BALANCE = float(os.getenv("PAPER_BALANCE", "1000"))  # simulated USDC in paper mode
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+# LLM review requires an Anthropic key; without one the bot still runs,
+# gating purely on the quantitative risk checks.
+LLM_REVIEW_ENABLED = bool(ANTHROPIC_API_KEY)
+
+STATE_FILE = os.getenv("STATE_FILE", "state.json")
+TRADES_DB = os.getenv("TRADES_DB", "trades.db")
 
 SYMBOL = "BTCUSDT"
 BACKTEST_YEARS = 5

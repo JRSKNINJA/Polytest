@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime, timezone
 
-DB = "trades.db"
+from config import TRADES_DB as DB
 
 
 def init():
